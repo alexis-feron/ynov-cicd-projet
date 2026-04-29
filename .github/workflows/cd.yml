@@ -1,0 +1,291 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  CD - Continuous Delivery to staging
+#
+#  Trigger : CI workflow completes successfully on main
+#
+#  Job graph:
+#
+#    build-push ──► scan-image ──► deploy-staging ──► smoke-test
+#                                                          │
+#                                          success ◄───────┤
+#                                          rollback ◄──────┘ (on failure)
+#
+#  Required secrets (set in repo Settings → Secrets):
+#    STAGING_HOST      - IP or hostname of staging server
+#    STAGING_USER      - SSH user (e.g. deploy)
+#    STAGING_SSH_KEY   - private SSH key (PEM)
+#    STAGING_ENV_FILE  - contents of .env for the staging server
+#
+#  Images are pushed to GHCR (GitHub Container Registry).
+#  The GITHUB_TOKEN is automatically available - no extra secret needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/blog-backend
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository_owner }}/blog-frontend
+
+# ── Job 1: Build & push Docker images ────────────────────────────────────────
+jobs:
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    # Only run if CI passed
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - app: backend
+            image: ghcr.io/${{ github.repository_owner }}/blog-backend
+          - app: frontend
+            image: ghcr.io/${{ github.repository_owner }}/blog-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Checkout the SHA that triggered the CI run
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            # SHA tag - immutable, used for deploy + rollback
+            type=sha,prefix=sha-,format=short
+            # Mutable staging tag
+            type=raw,value=staging,enable=true
+            # Latest (on main only)
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.app }}
+          file: ./${{ matrix.app }}/Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GitHub Actions cache for Docker layers
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,scope=${{ matrix.app }},mode=max
+          build-args: |
+            BUILDTIME=${{ github.event.workflow_run.updated_at }}
+            REVISION=${{ github.event.workflow_run.head_sha }}
+
+  # ── Job 2: Trivy image security scan ─────────────────────────────────────────
+  scan-image:
+    name: Scan Images (Trivy)
+    runs-on: ubuntu-latest
+    needs: build-push
+
+    permissions:
+      contents: read
+      packages: read
+      security-events: write # to upload SARIF to GitHub Security tab
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy scan - ${{ matrix.app }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/blog-${{ matrix.app }}:staging
+          format: sarif
+          output: trivy-${{ matrix.app }}.sarif
+          # Block on CRITICAL CVEs only in the image OS/packages
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.app }}.sarif
+          category: trivy-${{ matrix.app }}
+
+  # ── Job 3: Deploy to staging ─────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: scan-image
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Write .env file to staging
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            mkdir -p /opt/blog
+            # Write the env file (base64-encoded secret to avoid shell escaping issues)
+            echo '${{ secrets.STAGING_ENV_FILE }}' | base64 -d > /opt/blog/.env
+
+      - name: Copy compose file to staging
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: docker-compose.prod.yml,infra/
+          target: /opt/blog/
+
+      - name: Deploy new images
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/blog
+
+            # Record the current image tag before deploying (needed for rollback)
+            CURRENT_TAG=$(docker inspect --format='{{index .RepoTags 0}}' \
+              $(docker compose -f docker-compose.prod.yml ps -q backend) 2>/dev/null || echo "none")
+            echo "$CURRENT_TAG" > .last-successful-tag
+
+            # Authenticate with GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | \
+              docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new images (uses :staging tag pushed in build-push job)
+            IMAGE_TAG=staging \
+              docker compose -f docker-compose.prod.yml pull backend frontend
+
+            # Rolling restart: --no-build uses the pulled images
+            IMAGE_TAG=staging \
+              docker compose -f docker-compose.prod.yml up -d --no-build \
+                --remove-orphans
+
+            # Remove dangling images to save disk space
+            docker image prune -f
+
+  # ── Job 4: Smoke tests ────────────────────────────────────────────────────────
+  smoke-test:
+    name: Smoke Tests (staging)
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+
+    steps:
+      - name: Wait for services to be ready
+        run: sleep 20
+
+      - name: Backend health check
+        run: |
+          for i in $(seq 1 5); do
+            status=$(curl -sf -o /dev/null -w "%{http_code}" \
+              "https://${{ vars.STAGING_HOST }}/health" 2>/dev/null || echo "000")
+            if [ "$status" = "200" ]; then
+              echo "Backend healthy (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: got $status, retrying in 10s..."
+            sleep 10
+          done
+          echo "Backend health check failed after 5 attempts"
+          exit 1
+
+      - name: Frontend health check
+        run: |
+          for i in $(seq 1 5); do
+            status=$(curl -sf -o /dev/null -w "%{http_code}" \
+              "https://${{ vars.STAGING_FRONTEND_URL }}" 2>/dev/null || echo "000")
+            if [ "$status" = "200" ]; then
+              echo "Frontend healthy (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: got $status, retrying in 10s..."
+            sleep 10
+          done
+          echo "Frontend health check failed after 5 attempts"
+          exit 1
+
+  # ── Job 5: Automatic rollback on smoke-test failure ───────────────────────────
+  rollback-on-failure:
+    name: Rollback (auto)
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    # Only run if smoke tests failed
+    if: ${{ failure() && needs.smoke-test.result == 'failure' }}
+
+    steps:
+      - name: Rollback to previous image
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/blog
+
+            PREV_TAG=$(cat .last-successful-tag 2>/dev/null || echo "")
+            if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "none" ]; then
+              echo "No previous tag recorded - cannot rollback automatically"
+              exit 1
+            fi
+
+            echo "Rolling back to: $PREV_TAG"
+            # Re-tag the previous image as :staging
+            docker tag "$PREV_TAG" \
+              ghcr.io/${{ github.repository_owner }}/blog-backend:staging
+
+            IMAGE_TAG=staging \
+              docker compose -f docker-compose.prod.yml up -d --no-build backend
+
+            echo "Rollback complete"
+
+      - name: Notify failure
+        if: always()
+        run: |
+          echo "::error::Deployment to staging failed. Automatic rollback attempted."
+          echo "Check the workflow logs and staging server for details."

@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Manual Rollback workflow
+#
+#  Use this workflow to roll back to any previously pushed image tag.
+#  Images are tagged with `sha-<short-sha>` at build time; find the target
+#  SHA from the CD workflow run history or `git log`.
+#
+#  Usage:
+#    GitHub UI → Actions → "Rollback" → Run workflow
+#    Fill in sha (e.g. abc1234) and environment (staging)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Short git SHA to rollback to (e.g. abc1234)"
+        required: true
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+        default: staging
+      confirm:
+        description: 'Type "rollback" to confirm'
+        required: true
+        type: string
+
+jobs:
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirm rollback intent
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "rollback" ]; then
+            echo "Confirmation string did not match. Aborting."
+            exit 1
+          fi
+          echo "Rollback confirmed for SHA=${{ github.event.inputs.sha }}, env=${{ github.event.inputs.environment }}"
+
+  rollback:
+    name: Rollback (${{ github.event.inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: validate
+    environment:
+      name: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Determine secrets for environment
+        id: env-config
+        run: |
+          env="${{ github.event.inputs.environment }}"
+          echo "Deploying rollback on: $env"
+
+      - name: Rollback backend and frontend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/blog
+
+            TARGET_SHA="sha-${{ github.event.inputs.sha }}"
+            REGISTRY="ghcr.io/${{ github.repository_owner }}"
+
+            echo "Authenticating with GHCR..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | \
+              docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            echo "Pulling backend:$TARGET_SHA..."
+            docker pull "$REGISTRY/blog-backend:$TARGET_SHA"
+            docker tag  "$REGISTRY/blog-backend:$TARGET_SHA" \
+                        "$REGISTRY/blog-backend:staging"
+
+            echo "Pulling frontend:$TARGET_SHA..."
+            docker pull "$REGISTRY/blog-frontend:$TARGET_SHA"
+            docker tag  "$REGISTRY/blog-frontend:$TARGET_SHA" \
+                        "$REGISTRY/blog-frontend:staging"
+
+            echo "Restarting services..."
+            IMAGE_TAG=staging \
+              docker compose -f docker-compose.prod.yml up -d \
+                --no-build backend frontend
+
+            echo "Rollback to $TARGET_SHA complete."
+
+      - name: Verify rollback health
+        run: |
+          sleep 15
+          status=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "https://${{ vars.STAGING_HOST }}/health" || echo "000")
+          if [ "$status" != "200" ]; then
+            echo "::error::Health check failed after rollback (status=$status)"
+            exit 1
+          fi
+          echo "Rollback healthy."
+
+      - name: Summary
+        run: |
+          echo "### Rollback Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rolled back to | \`sha-${{ github.event.inputs.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Time | $(date -u) |" >> $GITHUB_STEP_SUMMARY
