@@ -1,0 +1,177 @@
+// ─────────────────────────────────────────────
+//  Datasource & Generator
+// ─────────────────────────────────────────────
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─────────────────────────────────────────────
+//  Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  AUTHOR
+  READER
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// ─────────────────────────────────────────────
+//  User
+// ─────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  password    String    // bcrypt hash - jamais le mot de passe en clair
+  username    String    @unique
+  displayName String
+  avatar      String?
+  role        Role      @default(READER)
+  isActive    Boolean   @default(true)
+
+  posts    Post[]
+  comments Comment[]
+
+  deletedAt DateTime? // soft delete
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+//  Category (arborescence self-relation)
+// ─────────────────────────────────────────────
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+
+  // Self-relation pour catégories imbriquées (ex: Tech > Backend > NestJS)
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  parentId String?
+  children Category[] @relation("CategoryTree")
+
+  posts Post[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+// ─────────────────────────────────────────────
+//  Tag
+// ─────────────────────────────────────────────
+
+model Tag {
+  id   String @id @default(cuid())
+  name String @unique
+  slug String @unique
+
+  posts PostTag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tags")
+}
+
+// ─────────────────────────────────────────────
+//  Post (Article)
+// ─────────────────────────────────────────────
+
+model Post {
+  id      String     @id @default(cuid())
+  title   String
+  slug    String     @unique
+  content String     // Markdown
+  excerpt String?
+
+  status PostStatus @default(DRAFT)
+
+  author   User   @relation(fields: [authorId], references: [id])
+  authorId String
+
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+
+  tags     PostTag[]
+  comments Comment[]
+
+  publishedAt DateTime?
+
+  deletedAt DateTime? // soft delete
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Index sur les colonnes fréquemment filtrées/triées
+  @@index([authorId])
+  @@index([status])
+  @@index([categoryId])
+  @@index([publishedAt])
+  @@index([deletedAt])
+  @@map("posts")
+}
+
+// ─────────────────────────────────────────────
+//  PostTag (table pivot many-to-many)
+// ─────────────────────────────────────────────
+
+model PostTag {
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String
+
+  tag   Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId String
+
+  assignedAt DateTime @default(now())
+
+  @@id([postId, tagId]) // clé primaire composite
+  @@map("post_tags")
+}
+
+// ─────────────────────────────────────────────
+//  Comment (arborescence self-relation)
+// ─────────────────────────────────────────────
+
+model Comment {
+  id      String @id @default(cuid())
+  content String
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String
+
+  author   User   @relation(fields: [authorId], references: [id])
+  authorId String
+
+  // Self-relation pour réponses imbriquées
+  parent   Comment?  @relation("CommentTree", fields: [parentId], references: [id])
+  parentId String?
+  replies  Comment[] @relation("CommentTree")
+
+  deletedAt DateTime? // soft delete (contenu remplacé par "[deleted]" côté lecture)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([deletedAt])
+  @@map("comments")
+}
