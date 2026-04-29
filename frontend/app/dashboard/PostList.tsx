@@ -42,9 +42,9 @@ const statusLabel: Record<PostStatus, string> = {
 };
 
 interface PostListProps {
-  posts: Post[];
-  onPostsChange: (updater: (prev: Post[]) => Post[]) => void;
-  onRequestEdit: (post: Post) => void;
+  readonly posts: Post[];
+  readonly onPostsChange: (updater: (prev: Post[]) => Post[]) => void;
+  readonly onRequestEdit: (post: Post) => void;
 }
 
 export default function PostList({

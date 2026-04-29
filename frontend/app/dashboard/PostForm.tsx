@@ -9,12 +9,19 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
 
+function getSubmitLabel(pending: boolean, isEditing: boolean): string {
+  if (pending) return isEditing ? 'Enregistrement…' : 'Création…';
+  return isEditing ? 'Enregistrer' : "Créer l'article";
+}
+
 interface PostFormProps {
-  editPost?: Post | null;
-  onCancel?: () => void;
-  onSaved?: (post: Post) => void;
-  onCreateOverride?: (payload: CreatePostPayload) => Promise<{ post?: Post; error?: string }>;
-  onDirtyChange?: (dirty: boolean) => void;
+  readonly editPost?: Post | null;
+  readonly onCancel?: () => void;
+  readonly onSaved?: (post: Post) => void;
+  readonly onCreateOverride?: (
+    payload: CreatePostPayload
+  ) => Promise<{ post?: Post; error?: string }>;
+  readonly onDirtyChange?: (dirty: boolean) => void;
 }
 
 export default function PostForm({
@@ -64,11 +71,14 @@ export default function PostForm({
 
     const payload = { title, content, excerpt: excerpt || undefined, status };
 
-    const result = isEditing
-      ? await updatePost(editPost.id, payload)
-      : onCreateOverride
-        ? await onCreateOverride(payload)
-        : await createPost(payload);
+    let result;
+    if (isEditing) {
+      result = await updatePost(editPost.id, payload);
+    } else if (onCreateOverride) {
+      result = await onCreateOverride(payload);
+    } else {
+      result = await createPost(payload);
+    }
 
     setPending(false);
 
@@ -78,7 +88,9 @@ export default function PostForm({
     }
 
     if (result.post) {
-      setSuccess(isEditing ? 'Article mis à jour !' : 'Article créé avec succès !');
+      setSuccess(
+        isEditing ? 'Article mis à jour !' : 'Article créé avec succès !'
+      );
       onDirtyChange?.(false);
       onSaved?.(result.post);
       if (!isEditing) {
@@ -101,12 +113,9 @@ export default function PostForm({
         </p>
       )}
       {success && (
-        <p
-          className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3.5 py-2"
-          role="status"
-        >
+        <output className="block text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3.5 py-2">
           {success}
-        </p>
+        </output>
       )}
 
       <div className="flex flex-col gap-1.5">
@@ -161,12 +170,15 @@ export default function PostForm({
 
       <div className="flex gap-3 mt-1">
         <Button type="submit" disabled={pending} className="flex-1">
-          {pending
-            ? isEditing ? 'Enregistrement…' : 'Création…'
-            : isEditing ? 'Enregistrer' : "Créer l'article"}
+          {getSubmitLabel(pending, isEditing)}
         </Button>
         {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={pending}
+          >
             Annuler
           </Button>
         )}

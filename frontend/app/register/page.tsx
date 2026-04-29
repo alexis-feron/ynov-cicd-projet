@@ -25,10 +25,15 @@ export default function RegisterPage() {
 
     const form = e.currentTarget;
     const email = (form.elements.namedItem('email') as HTMLInputElement).value;
-    const username = (form.elements.namedItem('username') as HTMLInputElement).value;
-    const displayName = (form.elements.namedItem('displayName') as HTMLInputElement).value;
-    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
-    const confirm = (form.elements.namedItem('confirm') as HTMLInputElement).value;
+    const username = (form.elements.namedItem('username') as HTMLInputElement)
+      .value;
+    const displayName = (
+      form.elements.namedItem('displayName') as HTMLInputElement
+    ).value;
+    const password = (form.elements.namedItem('password') as HTMLInputElement)
+      .value;
+    const confirm = (form.elements.namedItem('confirm') as HTMLInputElement)
+      .value;
 
     if (password !== confirm) {
       setError('Les mots de passe ne correspondent pas.');
@@ -53,7 +58,7 @@ export default function RegisterPage() {
         return;
       }
 
-      window.location.assign('/dashboard');
+      globalThis.location.assign('/dashboard');
     } catch {
       setError('Une erreur réseau est survenue. Réessayez.');
     } finally {
@@ -66,7 +71,9 @@ export default function RegisterPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Créer un compte</CardTitle>
-          <CardDescription>Rejoignez la communauté des rédacteurs</CardDescription>
+          <CardDescription>
+            Rejoignez la communauté des rédacteurs
+          </CardDescription>
         </CardHeader>
 
         <form onSubmit={handleSubmit} noValidate>
@@ -136,7 +143,8 @@ export default function RegisterPage() {
                 placeholder="••••••••"
               />
               <span className="text-xs text-muted-foreground">
-                Au moins 8 caractères, une majuscule, une minuscule et un chiffre
+                Au moins 8 caractères, une majuscule, une minuscule et un
+                chiffre
               </span>
             </div>
 
@@ -161,7 +169,10 @@ export default function RegisterPage() {
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
             Déjà inscrit ?{' '}
-            <Link href="/login" className="text-primary hover:underline font-medium">
+            <Link
+              href="/login"
+              className="text-primary hover:underline font-medium"
+            >
               Se connecter
             </Link>
           </p>

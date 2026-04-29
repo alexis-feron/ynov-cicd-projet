@@ -29,7 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       .findById(payload.sub)
       .catch(() => null);
 
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       throw new UnauthorizedException("User not found or disabled");
     }
 

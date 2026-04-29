@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { fetchAllSlugs, fetchPostBySlug } from '@/lib/api';
 
 interface PostPageProps {
-  params: Promise<{ slug: string }>;
+  readonly params: Promise<{ slug: string }>;
 }
 
 function formatDate(iso: string): string {
@@ -89,7 +89,7 @@ export default async function PostPage({ params }: PostPageProps) {
 
         <div className="prose mt-8 leading-relaxed text-base">
           {post.content.split('\n').map((line, i) => (
-            <p key={i}>{line}</p>
+            <p key={`${i}-${line.slice(0, 16)}`}>{line}</p>
           ))}
         </div>
       </article>
