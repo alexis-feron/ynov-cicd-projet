@@ -7,6 +7,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
+import { IsString } from "class-validator";
 import { CurrentUser } from "../../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../../common/guards/jwt-auth.guard";
 import { User } from "../../users/domain/entities/user.entity";
@@ -19,10 +20,12 @@ import { RegisterDto } from "../application/dto/register.dto";
 import { JwtPayload } from "../infrastructure/strategies/jwt.strategy";
 
 class RefreshDto {
+  @IsString()
   refreshToken!: string;
 }
 
 class LogoutDto {
+  @IsString()
   refreshToken!: string;
 }
 
