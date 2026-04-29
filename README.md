@@ -1,4 +1,4 @@
-# ynov-blog - Blog CMS Headless
+# Blog CMS Headless
 
 [![CI](https://github.com/alexis-feron/ynov-cicd-projet/actions/workflows/ci.yml/badge.svg)](https://github.com/alexis-feron/ynov-cicd-projet/actions/workflows/ci.yml)
 [![CD](https://github.com/alexis-feron/ynov-cicd-projet/actions/workflows/cd.yml/badge.svg)](https://github.com/alexis-feron/ynov-cicd-projet/actions/workflows/cd.yml)
@@ -188,7 +188,3 @@ Copier `.env.example` en `.env` et ajuster les valeurs.
 
 Les variables sensibles en production (`JWT_SECRET`, mots de passe) doivent être
 définies dans les secrets GitHub (CD pipeline) ou chiffrées avec `ansible-vault`.
-
-## Licence
-
-MIT
