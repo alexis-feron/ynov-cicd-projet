@@ -1,0 +1,351 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  CI - Continuous Integration
+#
+#  Triggers : push on main/develop, pull_request targeting main
+#
+#  Job graph (all run in parallel except ci-gate):
+#
+#    lint ──────────────────────────────────────────────┐
+#    docker-lint ───────────────────────────────────────┤
+#    security-audit ────────────────────────────────────┤
+#    snyk-security (matrix: backend, frontend) ─────────┤──► ci-gate
+#    test-unit (matrix: backend, frontend) ─────────────┤
+#    test-integration (backend, Testcontainers) ─────────┘
+#
+#  ci-gate is the required status check for branch protection.
+#  snyk-security requires SNYK_TOKEN in GitHub Secrets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # Cancel in-progress runs for the same branch (keeps one run per PR)
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+# ── Job 1: Lint ───────────────────────────────────────────────────────────────
+jobs:
+  lint:
+    name: Lint (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      - name: Lint
+        working-directory: ${{ matrix.app }}
+        run: npm run lint
+
+  # ── Job 2: Dockerfile lint ────────────────────────────────────────────────────
+  docker-lint:
+    name: Dockerfile Lint (${{ matrix.dockerfile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - backend/Dockerfile
+          - backend/Dockerfile.dev
+          - frontend/Dockerfile
+          - frontend/Dockerfile.dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint ${{ matrix.dockerfile }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          # DL3018: pin apk versions - acceptable for our alpine base
+          ignore: DL3018
+          failure-threshold: warning
+
+  # ── Job 3: Security audit ─────────────────────────────────────────────────────
+  security-audit:
+    name: Security Audit (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      # Fail the build only on high/critical CVEs
+      - name: npm audit
+        working-directory: ${{ matrix.app }}
+        run: npm audit --audit-level=high
+
+  # ── Job 4: Unit tests + coverage ──────────────────────────────────────────────
+  test-unit:
+    name: Unit Tests (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      # Backend: generate Prisma client before testing
+      - name: Generate Prisma client
+        if: matrix.app == 'backend'
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Run unit tests with coverage
+        working-directory: ${{ matrix.app }}
+        run: |
+          if [ "${{ matrix.app }}" = "backend" ]; then
+            npm run test:coverage -- --passWithNoTests
+          else
+            npm run test -- --passWithNoTests
+          fi
+        env:
+          JWT_SECRET: test-secret-for-ci
+
+      # Upload coverage report as artifact (backend only - has lcov)
+      - name: Upload coverage report
+        if: matrix.app == 'backend'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage/
+          retention-days: 7
+
+      # Optional: send to Codecov (requires CODECOV_TOKEN secret)
+      - name: Upload to Codecov
+        if: matrix.app == 'backend' && env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage/lcov.info
+          flags: unit
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── Job 5: Integration tests (Testcontainers - needs Docker) ──────────────────
+  test-integration:
+    name: Integration Tests (backend)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      # Testcontainers spins up its own Postgres + Redis containers
+      - name: Run integration tests
+        working-directory: backend
+        run: npm run test:integration
+        env:
+          JWT_SECRET: test-secret-for-ci
+          # Testcontainers uses the local Docker socket - no external services needed
+
+  # ── Job 6: SonarCloud analysis ────────────────────────────────────────────────
+  sonar:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    # Wait for unit tests so the lcov artifact is available
+    needs: [test-unit]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is required for accurate blame data and new-code detection
+          fetch-depth: 0
+
+      # Restore the backend coverage report produced by the test-unit job
+      - name: Download backend coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ── Job 7: Snyk Security Scan ─────────────────────────────────────────────────
+  snyk-security:
+    name: Snyk Security (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to upload SARIF results to the GitHub Security tab
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      # --severity-threshold=high  → exit 1 only on high/critical CVEs (medium/low are ignored)
+      # --sarif-file-output        → always write the report, even when vulnerabilities are found
+      - name: Snyk test - ${{ matrix.app }}
+        id: snyk
+        working-directory: ${{ matrix.app }}
+        continue-on-error: true # defer the failure so SARIF can always be uploaded
+        run: |
+          snyk test \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-${{ matrix.app }}.sarif
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # Upload SARIF unconditionally so the Security tab is populated even on failure
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles(format('{0}/snyk-{1}.sarif', matrix.app, matrix.app)) != ''
+        with:
+          sarif_file: ${{ matrix.app }}/snyk-${{ matrix.app }}.sarif
+          category: snyk-${{ matrix.app }}
+
+      # Re-raise the failure after SARIF is safely uploaded
+      - name: Fail on high/critical vulnerabilities
+        if: steps.snyk.outcome == 'failure'
+        run: |
+          echo "::error::High or critical vulnerabilities found in ${{ matrix.app }}. Review the GitHub Security tab for details."
+          exit 1
+
+  # ── Job 8: Lighthouse CI ──────────────────────────────────────────────────────
+  lighthouse:
+    name: Lighthouse CI (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run Lighthouse CI
+        working-directory: frontend
+        run: npx @lhci/cli autorun
+
+      - name: Upload Lighthouse reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: frontend/.lighthouseci/
+          retention-days: 7
+
+  # ── Gate: all CI checks must pass ─────────────────────────────────────────────
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs:
+      [
+        lint,
+        docker-lint,
+        security-audit,
+        snyk-security,
+        test-unit,
+        test-integration,
+        sonar,
+        lighthouse,
+      ]
+    # Always evaluate - even if a dependency is skipped
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          results='${{ toJSON(needs) }}'
+          failed=$(echo "$results" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          failed = [k for k, v in data.items() if v['result'] not in ('success', 'skipped')]
+          print('\n'.join(failed))
+          ")
+          if [ -n "$failed" ]; then
+            echo "The following jobs failed:"
+            echo "$failed"
+            exit 1
+          fi
+          echo "All CI jobs passed."

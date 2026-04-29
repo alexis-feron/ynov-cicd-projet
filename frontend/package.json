@@ -23,6 +23,9 @@
     "react-dom": "^19.2.5",
     "tailwind-merge": "^3.5.0"
   },
+  "overrides": {
+    "postcss": "$postcss"
+  },
   "browserslist": [
     "chrome >= 87",
     "firefox >= 78",

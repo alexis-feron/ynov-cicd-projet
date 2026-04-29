@@ -1,4 +1,5 @@
 import { type INestApplication } from "@nestjs/common";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import supertest from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -26,7 +27,9 @@ describe("Posts (integration)", () => {
     process.env.JWT_REFRESH_SECRET = "integration-test-refresh-secret";
 
     app = await createTestApp();
-    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    prisma = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: databaseUrl }),
+    });
     request = supertest(app.getHttpServer());
   });
 
@@ -67,11 +70,10 @@ describe("Posts (integration)", () => {
     });
 
     it("200 - paginates correctly", async () => {
-      await Promise.all([
-        createPost(prisma, authorId),
-        createPost(prisma, authorId),
-        createPost(prisma, authorId),
-      ]);
+      // Sequential to avoid slug collisions - factories key slugs off Date.now()
+      await createPost(prisma, authorId, { slug: `paginate-1-${authorId}` });
+      await createPost(prisma, authorId, { slug: `paginate-2-${authorId}` });
+      await createPost(prisma, authorId, { slug: `paginate-3-${authorId}` });
 
       const res = await request.get("/posts").query({ page: 1, limit: 2 });
 
@@ -95,20 +97,23 @@ describe("Posts (integration)", () => {
       expect(res.body.status).toBe("DRAFT");
     });
 
-    it("409 - rejects duplicate slug", async () => {
+    it("201 - auto-suffixes slug when base slug is taken", async () => {
       const body = { title: "Duplicate Title", content: "Content" };
 
-      await request
+      const first = await request
         .post("/posts")
         .set("Authorization", `Bearer ${accessToken}`)
         .send(body);
 
-      const res = await request
+      const second = await request
         .post("/posts")
         .set("Authorization", `Bearer ${accessToken}`)
         .send(body);
 
-      expect(res.status).toBe(409);
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(first.body.slug).toBe("duplicate-title");
+      expect(second.body.slug).toBe("duplicate-title-2");
     });
 
     it("400 - rejects title shorter than 3 chars", async () => {

@@ -1,4 +1,5 @@
 import { type INestApplication } from "@nestjs/common";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import supertest from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -28,7 +29,9 @@ describe("Auth (integration)", () => {
     process.env.JWT_REFRESH_SECRET = "integration-test-refresh-secret";
 
     app = await createTestApp();
-    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    prisma = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: databaseUrl }),
+    });
     request = supertest(app.getHttpServer());
   });
 

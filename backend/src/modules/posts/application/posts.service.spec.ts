@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Post, PostStatus } from "../domain/entities/post.entity";
 import { IPostRepository } from "../domain/repositories/post.repository.interface";
@@ -128,14 +124,20 @@ describe("PostsService", () => {
       );
     });
 
-    it("throws ConflictException when slug already exists", async () => {
-      vi.mocked(repository.slugExists).mockResolvedValue(true);
+    it("appends a numeric suffix when the base slug is taken", async () => {
+      vi.mocked(repository.slugExists)
+        .mockResolvedValueOnce(true) // base slug taken
+        .mockResolvedValueOnce(false); // base-2 free
+      vi.mocked(repository.create).mockResolvedValue(makePost());
 
-      await expect(
-        service.create({ title: "Hello World", content: "Content" }, "user-1"),
-      ).rejects.toThrow(ConflictException);
+      await service.create(
+        { title: "Hello World", content: "Content" },
+        "user-1",
+      );
 
-      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: "hello-world-2" }),
+      );
     });
   });
 
