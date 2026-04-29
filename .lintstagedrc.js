@@ -1,18 +1,26 @@
+const path = require('path');
+
+const toRel = (files, sub) =>
+  files
+    .map((f) => path.relative(path.join(process.cwd(), sub), f).replace(/\\/g, '/'))
+    .map((f) => `"${f}"`)
+    .join(' ');
+
 module.exports = {
   'backend/**/*.ts': (files) => {
-    const filePaths = files.join(' ');
+    const rel = toRel(files, 'backend');
     return [
-      `cd backend && npx prettier --write ${filePaths}`,
-      'cd backend && npm run lint',
-      `cd backend && npx vitest related --run --passWithNoTests ${filePaths}`
+      `npm --prefix backend exec -- prettier --write ${rel}`,
+      'npm --prefix backend run lint',
+      `npm --prefix backend exec -- vitest related --run --passWithNoTests ${rel}`,
     ];
   },
   'frontend/**/*.{ts,tsx,js,jsx}': (files) => {
-    const filePaths = files.join(' ');
+    const rel = toRel(files, 'frontend');
     return [
-      `cd frontend && npx prettier --write ${filePaths}`,
-      'cd frontend && npm run lint',
-      `cd frontend && npx vitest related --run --passWithNoTests ${filePaths}`
+      `npm --prefix frontend exec -- prettier --write ${rel}`,
+      'npm --prefix frontend run lint',
+      `npm --prefix frontend exec -- vitest related --run --passWithNoTests ${rel}`,
     ];
   },
 };
