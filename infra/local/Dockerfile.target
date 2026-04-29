@@ -1,0 +1,39 @@
+# ── Ansible test target - Ubuntu 24.04 with SSH ──────────────
+# Mimics the Hetzner staging server environment.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      openssh-server \
+      sudo \
+      python3 \
+      python3-pip \
+      curl \
+      ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create deploy user (same as on the real server)
+RUN useradd -m -s /bin/bash deploy && \
+    echo "deploy ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deploy && \
+    chmod 0440 /etc/sudoers.d/deploy
+
+# Accept the same SSH key used in Terraform / CI
+# Set ANSIBLE_TEST_PUBKEY at build time or mount the key at runtime.
+ARG ANSIBLE_TEST_PUBKEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... test-key"
+RUN mkdir -p /home/deploy/.ssh && \
+    echo "${ANSIBLE_TEST_PUBKEY}" > /home/deploy/.ssh/authorized_keys && \
+    chown -R deploy:deploy /home/deploy/.ssh && \
+    chmod 700 /home/deploy/.ssh && \
+    chmod 600 /home/deploy/.ssh/authorized_keys
+
+# Configure SSH daemon
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && \
+    sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    ssh-keygen -A   # generate host keys
+
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D"]

@@ -1,0 +1,94 @@
+---
+# ── Base role: OS hardening + system setup ────────────────────
+
+- name: Update apt cache and upgrade packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 3600
+  become: true
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+  become: true
+
+- name: Create deploy user
+  ansible.builtin.user:
+    name: "{{ deploy_user }}"
+    groups: [sudo]
+    shell: /bin/bash
+    create_home: true
+    state: present
+  become: true
+
+- name: Allow deploy user passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/{{ deploy_user }}
+    content: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+  become: true
+
+# ── SSH hardening ─────────────────────────────────────────────
+
+- name: Harden SSH configuration
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    backup: true
+  loop:
+    - { regexp: '^#?PermitRootLogin',      line: "PermitRootLogin {{ ssh_permit_root_login }}" }
+    - { regexp: '^#?PasswordAuthentication', line: "PasswordAuthentication {{ ssh_password_authentication }}" }
+    - { regexp: '^#?PubkeyAuthentication',  line: "PubkeyAuthentication {{ ssh_pubkey_authentication }}" }
+    - { regexp: '^#?X11Forwarding',         line: "X11Forwarding no" }
+    - { regexp: '^#?MaxAuthTries',          line: "MaxAuthTries 3" }
+  become: true
+  notify: Restart SSH
+
+# ── Firewall (UFW) ────────────────────────────────────────────
+
+- name: Enable UFW and set default deny
+  community.general.ufw:
+    state: enabled
+    default: deny
+    direction: incoming
+  become: true
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+  become: true
+
+- name: Allow HTTP and HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+  become: true
+
+# ── fail2ban ──────────────────────────────────────────────────
+
+- name: Enable and start fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true
+  become: true
+
+# ── App directory ─────────────────────────────────────────────
+
+- name: Create application directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+  become: true

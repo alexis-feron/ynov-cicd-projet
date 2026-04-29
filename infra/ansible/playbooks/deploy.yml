@@ -1,0 +1,67 @@
+---
+# ─────────────────────────────────────────────────────────────
+#  Playbook: deploy.yml
+#  Purpose : deploy or update the application
+#
+#  Called by the CD pipeline (cd.yml) and manually for rollback.
+#  All sensitive values are expected in ansible-vault encrypted
+#  group_vars/staging/vault.yml (not committed to git).
+#
+#  Usage:
+#    # Deploy latest staging image
+#    ansible-playbook -i inventory.ini playbooks/deploy.yml \
+#      --limit staging --ask-vault-pass
+#
+#    # Deploy a specific image tag (rollback)
+#    ansible-playbook -i inventory.ini playbooks/deploy.yml \
+#      --limit staging --ask-vault-pass \
+#      -e "image_tag=sha-abc1234"
+#
+#    # Dry-run
+#    ansible-playbook -i inventory.ini playbooks/deploy.yml \
+#      --limit staging --check --diff
+# ─────────────────────────────────────────────────────────────
+
+- name: Deploy application
+  hosts: "{{ target | default('staging') }}"
+  gather_facts: false
+  become: false
+
+  vars:
+    # Can be overridden with -e "image_tag=sha-abc1234"
+    image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('staging') }}"
+
+  pre_tasks:
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        mode: "0750"
+      become: true
+
+    - name: Record previous image tag (for rollback)
+      ansible.builtin.shell: |
+        docker inspect --format='{{ "{{" }}index .RepoTags 0{{ "}}" }}' \
+          $(docker compose -f {{ app_dir }}/docker-compose.prod.yml ps -q backend 2>/dev/null) \
+          2>/dev/null || echo "none"
+      register: previous_image
+      changed_when: false
+      failed_when: false
+
+    - name: Save previous tag
+      ansible.builtin.copy:
+        content: "{{ previous_image.stdout }}\n"
+        dest: "{{ app_dir }}/.last-successful-tag"
+        mode: "0640"
+
+  roles:
+    - role: app   # pull images, render .env, docker compose up, health check
+
+  post_tasks:
+    - name: Print rollback instructions
+      ansible.builtin.debug:
+        msg: >-
+          To rollback: ansible-playbook playbooks/deploy.yml
+          -e "image_tag={{ previous_image.stdout }}"
+      when: previous_image.stdout != 'none'

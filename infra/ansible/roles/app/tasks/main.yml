@@ -1,0 +1,67 @@
+---
+# ── App role: deploy application via Docker Compose ───────────
+
+- name: Copy docker-compose.prod.yml
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../docker-compose.prod.yml"
+    dest: "{{ app_dir }}/docker-compose.prod.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0640"
+
+- name: Copy monitoring configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../infra/monitoring/"
+    dest: "{{ app_dir }}/infra/monitoring/"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0640"
+
+- name: Render .env file from template
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0600" # secrets - readable only by deploy user
+  # Variables prefixed vault_ should come from ansible-vault encrypted vars
+
+- name: Log in to GitHub Container Registry
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "{{ registry_owner }}"
+    password: "{{ vault_ghcr_token }}"
+  become_user: "{{ deploy_user }}"
+
+- name: Pull latest images
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    files: [docker-compose.prod.yml]
+    pull: always
+    state: present
+  environment:
+    IMAGE_TAG: "{{ image_tag }}"
+  become_user: "{{ deploy_user }}"
+  register: compose_result
+
+- name: Run database migrations
+  community.docker.docker_container_exec:
+    container: "{{ app_name }}-backend-1"
+    command: npx prisma migrate deploy
+  become_user: "{{ deploy_user }}"
+  when: compose_result.changed
+
+- name: Verify backend health
+  ansible.builtin.uri:
+    url: "http://localhost:3001/health"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: health_check
+  retries: 5
+  delay: 10
+  until: health_check.status == 200
+
+- name: Print deployment summary
+  ansible.builtin.debug:
+    msg: "Deployed image_tag={{ image_tag }} - backend healthy"

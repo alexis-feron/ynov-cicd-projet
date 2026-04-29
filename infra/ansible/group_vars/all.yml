@@ -1,0 +1,33 @@
+---
+# ── Application ───────────────────────────────────────────────
+app_name: ynov-blog
+app_dir: /opt/blog
+deploy_user: deploy
+
+# Docker image registry
+registry: ghcr.io
+registry_owner: "{{ lookup('env', 'GITHUB_REPOSITORY_OWNER') | default('alexis-feron') }}"
+image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('staging') }}"
+
+# ── Docker ────────────────────────────────────────────────────
+docker_compose_version: "2.24.5"
+
+# ── System ────────────────────────────────────────────────────
+# Packages installed on every server
+base_packages:
+  - curl
+  - wget
+  - git
+  - unzip
+  - htop
+  - ufw
+  - fail2ban
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# ── SSH hardening ─────────────────────────────────────────────
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"
