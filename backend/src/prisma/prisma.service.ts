@@ -12,7 +12,6 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     super({
       adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
     } as any);

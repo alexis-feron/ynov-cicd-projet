@@ -1,0 +1,58 @@
+global:
+  # How long to wait before re-sending a resolved alert
+  resolve_timeout: 5m
+
+# ── Routing ───────────────────────────────────────────────────
+route:
+  # Group alerts by name to batch related notifications
+  group_by: [alertname, severity]
+  group_wait: 30s # wait before sending the first batch
+  group_interval: 5m # wait before sending new alerts in same group
+  repeat_interval: 4h # re-send still-firing alerts every 4 hours
+  receiver: discord-default
+
+  # Critical alerts get their own route with shorter repeat interval
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: discord-critical
+      repeat_interval: 30m
+
+# ── Inhibition ────────────────────────────────────────────────
+# When BackendDown fires, suppress downstream alerts (error-rate, latency)
+# to avoid notification spam from a single root cause.
+inhibit_rules:
+  - source_matchers:
+      - alertname="BackendDown"
+    target_matchers:
+      - alertname=~"HighErrorRate|CriticalErrorRate|HighP95Latency"
+    equal: [env]
+
+# ── Receivers ─────────────────────────────────────────────────
+receivers:
+  - name: discord-default
+    discord_configs:
+      - webhook_url: "${DISCORD_WEBHOOK_URL}"
+        title: |
+          {{ if eq .Status "firing" }}🔴 {{ else }}✅ {{ end }}
+          [{{ .CommonLabels.severity | toUpper }}] {{ .CommonAnnotations.summary }}
+        message: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          {{ .Annotations.description }}
+          *Started:* {{ .StartsAt | since }}
+          {{ end }}
+        send_resolved: true
+
+  - name: discord-critical
+    discord_configs:
+      - webhook_url: "${DISCORD_WEBHOOK_URL}"
+        title: |
+          🚨 CRITICAL - {{ .CommonAnnotations.summary }}
+        message: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          {{ .Annotations.description }}
+          *Started:* {{ .StartsAt | since }}
+          {{ end }}
+        send_resolved: true

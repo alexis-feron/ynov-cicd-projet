@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: "${ENV:-development}"
+
+# ── Alertmanager ──────────────────────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+# ── Alert rules ───────────────────────────────────────────────
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# ── Scrape configs ────────────────────────────────────────────
+scrape_configs:
+  # NestJS backend - exposes /metrics via @willsoto/nestjs-prometheus
+  - job_name: backend
+    static_configs:
+      - targets: ["backend:3001"]
+    metrics_path: /metrics
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Node exporter (if deployed on the server via Ansible)
+  # - job_name: node
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
