@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────
+#  Local Ansible test target
+#
+#  Simulates the staging server as a Docker container so that
+#  Ansible playbooks can be tested without a real cloud server.
+#
+#  Usage:
+#    # Start the target server container
+#    docker compose -f infra/local/docker-compose.yml up -d
+#
+#    # Run setup playbook against local target (dry-run)
+#    ansible-playbook -i infra/ansible/inventory.ini \
+#      infra/ansible/playbooks/setup.yml \
+#      --limit local --check --diff
+#
+#    # Full run (installs packages inside the container)
+#    ansible-playbook -i infra/ansible/inventory.ini \
+#      infra/ansible/playbooks/setup.yml \
+#      --limit local
+#
+#    # Stop and remove
+#    docker compose -f infra/local/docker-compose.yml down
+# ─────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+  target-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.target
+    container_name: ansible-target
+    ports:
+      - "2222:22" # SSH - matches inventory.ini [local] ansible_port=2222
+    # Mount Docker socket so the Ansible docker role can be tested
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    tmpfs:
+      - /run
+      - /run/lock
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined

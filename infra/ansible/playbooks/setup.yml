@@ -1,0 +1,45 @@
+---
+# ─────────────────────────────────────────────────────────────
+#  Playbook: setup.yml
+#  Purpose : initial server provisioning (run once after `terraform apply`)
+#
+#  Usage:
+#    ansible-playbook -i inventory.ini playbooks/setup.yml \
+#      --limit staging \
+#      --ask-vault-pass
+#
+#  Dry-run (no changes applied):
+#    ansible-playbook -i inventory.ini playbooks/setup.yml \
+#      --limit staging --check --diff
+# ─────────────────────────────────────────────────────────────
+
+- name: Initial server setup
+  hosts: "{{ target | default('staging') }}"
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verify Ansible version
+      ansible.builtin.assert:
+        that: ansible_version.full is version('2.15', '>=')
+        fail_msg: "Ansible >= 2.15 required"
+
+    - name: Verify OS is Ubuntu 22.04 or 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('22.04', '>=')
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+  roles:
+    - role: base    # OS updates, deploy user, SSH hardening, UFW, fail2ban
+    - role: docker  # Docker CE + Compose plugin
+
+  post_tasks:
+    - name: Reboot if kernel was updated
+      ansible.builtin.reboot:
+        reboot_timeout: 120
+      when: >
+        ansible_facts.packages is defined and
+        (ansible_facts.packages.get('linux-image-generic', [{}])[0].get('version', '')
+         != ansible_facts.kernel)
