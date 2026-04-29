@@ -1,0 +1,24 @@
+# ──────────────────────────────────────────────
+#  Development image - source mounted via volume
+# ──────────────────────────────────────────────
+FROM node:20-alpine3.21
+
+WORKDIR /app
+
+# dumb-init: PID 1 process manager for proper signal handling
+RUN apk add --no-cache dumb-init openssl
+
+# Install dependencies first (layer cached until package*.json changes)
+COPY package*.json ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+RUN npm ci
+
+# Generate Prisma client against the local schema
+RUN npx prisma generate
+
+EXPOSE 3001
+
+ENTRYPOINT ["dumb-init", "--"]
+# Source is mounted as a volume; nest start --watch handles hot-reload
+CMD ["npm", "run", "start:dev"]
