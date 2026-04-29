@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.gitignore
+**/*.md
+coverage
+.env
+.env.*
+!.env.example
+*.log
+prisma/migrations/*.sql.tmp
