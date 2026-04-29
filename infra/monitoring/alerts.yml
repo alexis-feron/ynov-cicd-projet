@@ -1,0 +1,96 @@
+groups:
+
+  # ── Service availability ─────────────────────────────────────
+  - name: availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is down"
+          description: "The NestJS backend has not responded to scrapes for 2 minutes."
+
+  # ── Error rate ────────────────────────────────────────────────
+  - name: error_rate
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx error rate above 5%"
+          description: >-
+            {{ printf "%.1f" $value }}% of requests are returning 5xx
+            over the last 5 minutes.
+
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) * 100 > 20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx error rate above 20%"
+          description: >-
+            {{ printf "%.1f" $value }}% of requests are returning 5xx.
+            Immediate attention required.
+
+  # ── Latency ───────────────────────────────────────────────────
+  - name: latency
+    rules:
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 latency above 1s on {{ $labels.route }}"
+          description: >-
+            The 95th percentile latency on route {{ $labels.route }} is
+            {{ printf "%.2f" $value }}s over the last 5 minutes.
+
+  # ── Resources ─────────────────────────────────────────────────
+  - name: resources
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            nodejs_heap_size_used_bytes
+            /
+            nodejs_heap_size_total_bytes
+          ) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js heap usage above 85%"
+          description: >-
+            Heap usage is at {{ printf "%.0f" $value }}%.
+            Consider investigating for memory leaks.
+
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_seconds > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js event loop lag above 500ms"
+          description: >-
+            Event loop lag is {{ $value | humanizeDuration }}.
+            The application may be CPU-bound or blocked.
