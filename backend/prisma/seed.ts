@@ -1,11 +1,12 @@
 import { PostStatus, PrismaClient, Role } from "@prisma/client";
-import * as crypto from "crypto";
+import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-// Simule un hash bcrypt sans la dépendance (remplacé par bcrypt en prod)
-function fakeHash(password: string): string {
-  return `$2b$10$${crypto.createHash("sha256").update(password).digest("hex").slice(0, 53)}`;
+const BCRYPT_ROUNDS = 10;
+
+function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
 async function main(): Promise<void> {
@@ -17,7 +18,7 @@ async function main(): Promise<void> {
     update: {},
     create: {
       email: "admin@blog.dev",
-      password: fakeHash("Admin1234!"),
+      password: await hashPassword("Admin1234!"),
       username: "admin",
       displayName: "Admin",
       role: Role.ADMIN,
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
     update: {},
     create: {
       email: "author@blog.dev",
-      password: fakeHash("Author1234!"),
+      password: await hashPassword("Author1234!"),
       username: "john_doe",
       displayName: "John Doe",
       role: Role.AUTHOR,
