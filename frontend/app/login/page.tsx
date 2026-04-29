@@ -25,7 +25,8 @@ export default function LoginPage() {
 
     const form = e.currentTarget;
     const email = (form.elements.namedItem('email') as HTMLInputElement).value;
-    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+    const password = (form.elements.namedItem('password') as HTMLInputElement)
+      .value;
 
     try {
       const res = await fetch('/api/auth/login', {
@@ -41,7 +42,7 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.assign('/dashboard');
+      globalThis.location.assign('/dashboard');
     } catch {
       setError('Une erreur réseau est survenue. Réessayez.');
     } finally {
@@ -101,7 +102,10 @@ export default function LoginPage() {
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
             Pas encore de compte ?{' '}
-            <Link href="/register" className="text-primary hover:underline font-medium">
+            <Link
+              href="/register"
+              className="text-primary hover:underline font-medium"
+            >
               Créer un compte
             </Link>
           </p>

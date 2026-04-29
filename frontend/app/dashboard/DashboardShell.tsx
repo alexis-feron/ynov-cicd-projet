@@ -10,7 +10,7 @@ import PostForm from './PostForm';
 import PostList from './PostList';
 
 interface DashboardShellProps {
-  initialPosts: Post[];
+  readonly initialPosts: Post[];
 }
 
 export default function DashboardShell({ initialPosts }: DashboardShellProps) {
@@ -133,7 +133,7 @@ export default function DashboardShell({ initialPosts }: DashboardShellProps) {
                 editPost={editing}
                 onCancel={isEditing ? () => requestEdit(null) : undefined}
                 onSaved={handleSaved}
-                onCreateOverride={!isEditing ? handleCreate : undefined}
+                onCreateOverride={isEditing ? undefined : handleCreate}
                 onDirtyChange={(dirty) => {
                   isDirtyRef.current = dirty;
                 }}

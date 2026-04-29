@@ -3,10 +3,15 @@ import { fetchPosts } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CalendarDays, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+} from 'lucide-react';
 
 interface HomeProps {
-  searchParams: { page?: string };
+  readonly searchParams: { page?: string };
 }
 
 function formatDate(iso: string): string {
@@ -36,7 +41,8 @@ export default async function HomePage({ searchParams }: HomeProps) {
         <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
           <AlertCircle className="h-8 w-8" />
           <p className="text-sm">
-            Impossible de charger les articles. Vérifiez que le backend est démarré.
+            Impossible de charger les articles. Vérifiez que le backend est
+            démarré.
           </p>
         </div>
       </main>
@@ -49,8 +55,8 @@ export default async function HomePage({ searchParams }: HomeProps) {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Articles</h1>
           <p className="mt-1 text-muted-foreground text-sm">
-            {meta.total} article{meta.total !== 1 ? 's' : ''} publié
-            {meta.total !== 1 ? 's' : ''}
+            {meta.total} article{meta.total === 1 ? '' : 's'} publié
+            {meta.total === 1 ? '' : 's'}
           </p>
         </div>
       </div>
@@ -68,7 +74,9 @@ export default async function HomePage({ searchParams }: HomeProps) {
                   {post.publishedAt && (
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
                       <CalendarDays className="h-3.5 w-3.5" />
-                      <time dateTime={post.publishedAt}>{formatDate(post.publishedAt)}</time>
+                      <time dateTime={post.publishedAt}>
+                        {formatDate(post.publishedAt)}
+                      </time>
                     </div>
                   )}
                   <h2 className="text-lg font-semibold leading-snug">

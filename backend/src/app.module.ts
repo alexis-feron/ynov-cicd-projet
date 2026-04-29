@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 import { LoggerModule } from "nestjs-pino";
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -26,8 +26,9 @@ const isProduction = process.env.NODE_ENV === "production";
 
         // Assign the requestId to the response header as well
         customProps: (req) => ({
-          requestId: (req as import("http").IncomingMessage & { id: string })
-            .id,
+          requestId: (
+            req as import("node:http").IncomingMessage & { id: string }
+          ).id,
         }),
 
         // In production → JSON; in dev → pretty-print via pino-pretty

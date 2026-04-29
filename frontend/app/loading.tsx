@@ -6,8 +6,8 @@ export default function Loading() {
         <div className="mt-2 h-4 w-24 rounded bg-slate-100 animate-pulse" />
       </div>
       <ul className="grid grid-cols-1 md:grid-cols-2 gap-5 list-none p-0 m-0">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <li key={i}>
+        {['a', 'b', 'c', 'd', 'e', 'f'].map((k) => (
+          <li key={k}>
             <div className="rounded-lg border p-5 h-44 flex flex-col gap-3">
               <div className="h-3 w-24 rounded bg-slate-100 animate-pulse" />
               <div className="h-5 w-3/4 rounded bg-slate-100 animate-pulse" />
