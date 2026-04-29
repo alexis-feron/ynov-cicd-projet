@@ -55,6 +55,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -g 1001 -S nodejs \
  && adduser  -S nextjs -u 1001 -G nodejs
 
+WORKDIR /app
+
 # next build --output=standalone writes a self-contained server to .next/standalone
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static   ./.next/static
