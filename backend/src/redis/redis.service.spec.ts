@@ -12,7 +12,11 @@ const mockClient = {
 };
 
 vi.mock("ioredis", () => ({
-  default: vi.fn(() => mockClient),
+  default: class MockRedis {
+    constructor() {
+      return mockClient;
+    }
+  },
 }));
 
 describe("RedisService", () => {

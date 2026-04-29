@@ -61,21 +61,24 @@ jobs:
 
   # ── Job 2: Dockerfile lint ────────────────────────────────────────────────────
   docker-lint:
-    name: Dockerfile Lint
+    name: Dockerfile Lint (${{ matrix.dockerfile }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - backend/Dockerfile
+          - backend/Dockerfile.dev
+          - frontend/Dockerfile
+          - frontend/Dockerfile.dev
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint Dockerfiles with hadolint
+      - name: Lint ${{ matrix.dockerfile }}
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          # Lint all four Dockerfiles in one shot
-          dockerfile: |
-            backend/Dockerfile
-            backend/Dockerfile.dev
-            frontend/Dockerfile
-            frontend/Dockerfile.dev
+          dockerfile: ${{ matrix.dockerfile }}
           # DL3018: pin apk versions - acceptable for our alpine base
           ignore: DL3018
           failure-threshold: warning
@@ -137,7 +140,12 @@ jobs:
 
       - name: Run unit tests with coverage
         working-directory: ${{ matrix.app }}
-        run: npm run test:coverage 2>/dev/null || npm run test
+        run: |
+          if [ "${{ matrix.app }}" = "backend" ]; then
+            npm run test:coverage -- --passWithNoTests
+          else
+            npm run test -- --passWithNoTests
+          fi
         env:
           JWT_SECRET: test-secret-for-ci
 

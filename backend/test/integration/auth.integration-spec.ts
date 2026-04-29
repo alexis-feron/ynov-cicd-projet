@@ -28,7 +28,7 @@ describe("Auth (integration)", () => {
     process.env.JWT_REFRESH_SECRET = "integration-test-refresh-secret";
 
     app = await createTestApp();
-    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    prisma = new PrismaClient({ datasourceUrl: databaseUrl });
     request = supertest(app.getHttpServer());
   });
 

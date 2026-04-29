@@ -51,6 +51,11 @@
   "prisma": {
     "binaryTargets": ["native", "linux-musl-openssl-3.0.x"]
   },
+  "overrides": {
+    "@hono/node-server": "^1.19.13",
+    "fastify": "^5.8.5",
+    "uuid": "^14.0.0"
+  },
   "devDependencies": {
     "@nestjs/cli": "^11.0.21",
     "@nestjs/testing": "^11.1.19",
